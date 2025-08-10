@@ -1,18 +1,45 @@
 # Java HTTP编程详解
 
 ## 目录
-- [HTTP协议基础](#http协议基础)
-- [Java HTTP客户端](#java-http客户端)
-- [HttpURLConnection详解](#httpurlconnection详解)
-- [Apache HttpClient](#apache-httpclient)
-- [OkHttp客户端](#okhttp客户端)
-- [Java 11 HTTP Client](#java-11-http-client)
-- [HTTP服务器实现](#http服务器实现)
-- [RESTful API开发](#restful-api开发)
-- [HTTP性能优化](#http性能优化)
-- [安全考虑](#安全考虑)
-- [最佳实践](#最佳实践)
-- [面试要点](#面试要点)
+- [Java HTTP编程详解](#java-http编程详解)
+  - [目录](#目录)
+  - [HTTP协议基础](#http协议基础)
+    - [HTTP协议概述](#http协议概述)
+    - [HTTP请求结构](#http请求结构)
+    - [HTTP响应结构](#http响应结构)
+    - [HTTP方法](#http方法)
+    - [HTTP状态码](#http状态码)
+  - [Java HTTP客户端](#java-http客户端)
+    - [客户端选择对比](#客户端选择对比)
+  - [HttpURLConnection详解](#httpurlconnection详解)
+    - [基本GET请求](#基本get请求)
+    - [高级HttpURLConnection封装](#高级httpurlconnection封装)
+  - [Apache HttpClient](#apache-httpclient)
+    - [基本使用](#基本使用)
+  - [OkHttp客户端](#okhttp客户端)
+    - [基本使用](#基本使用-1)
+  - [Java 11 HTTP Client](#java-11-http-client)
+    - [基本使用](#基本使用-2)
+  - [HTTP服务器实现](#http服务器实现)
+    - [使用HttpServer（Java内置）](#使用httpserverjava内置)
+  - [RESTful API开发](#restful-api开发)
+    - [RESTful API服务器实现](#restful-api服务器实现)
+  - [HTTP性能优化](#http性能优化)
+    - [连接池优化](#连接池优化)
+    - [异步HTTP处理](#异步http处理)
+  - [安全考虑](#安全考虑)
+    - [SSL/TLS配置](#ssltls配置)
+    - [请求验证和限流](#请求验证和限流)
+  - [最佳实践](#最佳实践)
+    - [1. 资源管理](#1-资源管理)
+    - [2. 错误处理](#2-错误处理)
+    - [3. 性能优化](#3-性能优化)
+    - [4. 安全考虑](#4-安全考虑)
+  - [面试要点](#面试要点)
+    - [高频问题](#高频问题)
+    - [深入问题](#深入问题)
+    - [实践经验](#实践经验)
+  - [总结](#总结)
 
 ## HTTP协议基础
 
@@ -941,4 +968,576 @@ public class Java11HttpClientExample {
         }
     }
 }
+```
+
+## HTTP服务器实现
+
+### 使用HttpServer（Java内置）
+
+```java
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+
+public class SimpleHttpServer {
+    public static void main(String[] args) throws IOException {
+        // 创建HTTP服务器，监听8080端口
+        HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
+        
+        // 添加处理器
+        server.createContext("/hello", new HelloHandler());
+        server.createContext("/api/users", new UserHandler());
+        
+        // 设置线程池
+        server.setExecutor(null); // 使用默认线程池
+        
+        // 启动服务器
+        server.start();
+        System.out.println("服务器启动在端口8080");
+    }
+    
+    static class HelloHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            if ("GET".equals(method)) {
+                handleGet(exchange);
+            } else if ("POST".equals(method)) {
+                handlePost(exchange);
+            } else {
+                // 方法不支持
+                exchange.sendResponseHeaders(405, -1);
+            }
+        }
+        
+        private void handleGet(HttpExchange exchange) throws IOException {
+            String response = "Hello, World!";
+            exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+            exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
+            
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response.getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        
+        private void handlePost(HttpExchange exchange) throws IOException {
+            // 读取请求体
+            String requestBody = readRequestBody(exchange);
+            
+            String response = "收到POST数据: " + requestBody;
+            exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+            exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
+            
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response.getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        
+        private String readRequestBody(HttpExchange exchange) throws IOException {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                return sb.toString();
+            }
+        }
+    }
+}
+```
+
+## RESTful API开发
+
+### RESTful API服务器实现
+
+```java
+import com.sun.net.httpserver.*;
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class RestApiServer {
+    private static final Map<String, User> users = new ConcurrentHashMap<>();
+    
+    static {
+        users.put("1", new User("1", "张三", "zhang@example.com"));
+        users.put("2", new User("2", "李四", "li@example.com"));
+    }
+    
+    public static void main(String[] args) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
+        server.createContext("/api/users", new UserHandler());
+        server.start();
+        System.out.println("REST API服务器启动在端口8080");
+    }
+    
+    static class UserHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            String path = exchange.getRequestURI().getPath();
+            
+            try {
+                switch (method) {
+                    case "GET":
+                        handleGet(exchange, path);
+                        break;
+                    case "POST":
+                        handlePost(exchange);
+                        break;
+                    case "PUT":
+                        handlePut(exchange, path);
+                        break;
+                    case "DELETE":
+                        handleDelete(exchange, path);
+                        break;
+                    default:
+                        sendResponse(exchange, 405, "Method Not Allowed");
+                }
+            } catch (Exception e) {
+                sendResponse(exchange, 500, "Internal Server Error: " + e.getMessage());
+            }
+        }
+        
+        private void handleGet(HttpExchange exchange, String path) throws IOException {
+            if (path.equals("/api/users")) {
+                // 获取所有用户
+                String json = usersToJson(new ArrayList<>(users.values()));
+                sendJsonResponse(exchange, 200, json);
+            } else if (path.startsWith("/api/users/")) {
+                // 获取特定用户
+                String userId = path.substring("/api/users/".length());
+                User user = users.get(userId);
+                if (user != null) {
+                    String json = userToJson(user);
+                    sendJsonResponse(exchange, 200, json);
+                } else {
+                    sendResponse(exchange, 404, "User not found");
+                }
+            }
+        }
+        
+        private void handlePost(HttpExchange exchange) throws IOException {
+            String requestBody = readRequestBody(exchange);
+            User user = jsonToUser(requestBody);
+            
+            if (user.getId() == null || user.getId().isEmpty()) {
+                user.setId(UUID.randomUUID().toString());
+            }
+            
+            users.put(user.getId(), user);
+            String json = userToJson(user);
+            sendJsonResponse(exchange, 201, json);
+        }
+        
+        private void handlePut(HttpExchange exchange, String path) throws IOException {
+            if (path.startsWith("/api/users/")) {
+                String userId = path.substring("/api/users/".length());
+                if (users.containsKey(userId)) {
+                    String requestBody = readRequestBody(exchange);
+                    User user = jsonToUser(requestBody);
+                    user.setId(userId);
+                    users.put(userId, user);
+                    String json = userToJson(user);
+                    sendJsonResponse(exchange, 200, json);
+                } else {
+                    sendResponse(exchange, 404, "User not found");
+                }
+            }
+        }
+        
+        private void handleDelete(HttpExchange exchange, String path) throws IOException {
+            if (path.startsWith("/api/users/")) {
+                String userId = path.substring("/api/users/".length());
+                if (users.remove(userId) != null) {
+                    sendResponse(exchange, 204, "");
+                } else {
+                    sendResponse(exchange, 404, "User not found");
+                }
+            }
+        }
+        
+        private void sendJsonResponse(HttpExchange exchange, int statusCode, String json) throws IOException {
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(statusCode, json.getBytes(StandardCharsets.UTF_8).length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(json.getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        
+        private void sendResponse(HttpExchange exchange, int statusCode, String response) throws IOException {
+            exchange.sendResponseHeaders(statusCode, response.getBytes(StandardCharsets.UTF_8).length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response.getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        
+        private String readRequestBody(HttpExchange exchange) throws IOException {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                return sb.toString();
+            }
+        }
+        
+        // 简单的JSON序列化（实际项目中建议使用Jackson或Gson）
+        private String userToJson(User user) {
+            return String.format(
+                "{\"id\":\"%s\",\"name\":\"%s\",\"email\":\"%s\"}",
+                user.getId(), user.getName(), user.getEmail()
+            );
+        }
+        
+        private String usersToJson(List<User> userList) {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < userList.size(); i++) {
+                if (i > 0) sb.append(",");
+                sb.append(userToJson(userList.get(i)));
+            }
+            sb.append("]");
+            return sb.toString();
+        }
+        
+        private User jsonToUser(String json) {
+            // 简单的JSON解析（实际项目中建议使用Jackson或Gson）
+            User user = new User();
+            // 这里简化处理，实际应该用正确的JSON解析
+            return user;
+        }
+    }
+    
+    static class User {
+        private String id;
+        private String name;
+        private String email;
+        
+        public User() {}
+        
+        public User(String id, String name, String email) {
+            this.id = id;
+            this.name = name;
+            this.email = email;
+        }
+        
+        // getter和setter方法
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+    }
+}
+```
+
+## HTTP性能优化
+
+### 连接池优化
+
+```java
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.client.config.RequestConfig;
+import java.util.concurrent.TimeUnit;
+
+public class HttpClientPool {
+    private static CloseableHttpClient httpClient;
+    
+    static {
+        // 创建连接池管理器
+        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+        cm.setMaxTotal(200); // 最大连接数
+        cm.setDefaultMaxPerRoute(20); // 每个路由的最大连接数
+        cm.closeExpiredConnections();
+        cm.closeIdleConnections(30, TimeUnit.SECONDS);
+        
+        // 请求配置
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(5000) // 连接超时
+                .setSocketTimeout(10000) // 读取超时
+                .setConnectionRequestTimeout(3000) // 从连接池获取连接超时
+                .build();
+        
+        // 创建HttpClient
+        httpClient = HttpClients.custom()
+                .setConnectionManager(cm)
+                .setDefaultRequestConfig(requestConfig)
+                .build();
+    }
+    
+    public static CloseableHttpClient getHttpClient() {
+        return httpClient;
+    }
+    
+    // 应用关闭时调用
+    public static void shutdown() {
+        try {
+            if (httpClient != null) {
+                httpClient.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+### 异步HTTP处理
+
+```java
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.List;
+import java.util.ArrayList;
+
+public class AsyncHttpExample {
+    private static final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+    
+    public static void main(String[] args) {
+        // 并发发送多个请求
+        List<String> urls = List.of(
+            "https://api.github.com/users/octocat",
+            "https://api.github.com/users/defunkt",
+            "https://api.github.com/users/pjhyett"
+        );
+        
+        List<CompletableFuture<String>> futures = new ArrayList<>();
+        
+        for (String url : urls) {
+            CompletableFuture<String> future = sendAsyncRequest(url);
+            futures.add(future);
+        }
+        
+        // 等待所有请求完成
+        CompletableFuture<Void> allFutures = CompletableFuture.allOf(
+            futures.toArray(new CompletableFuture[0])
+        );
+        
+        allFutures.thenRun(() -> {
+            System.out.println("所有请求完成");
+            futures.forEach(future -> {
+                try {
+                    System.out.println("响应: " + future.get());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
+        }).join();
+    }
+    
+    private static CompletableFuture<String> sendAsyncRequest(String url) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(30))
+                .header("User-Agent", "Java HTTP Client")
+                .GET()
+                .build();
+        
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .exceptionally(throwable -> {
+                    System.err.println("请求失败: " + url + ", 错误: " + throwable.getMessage());
+                    return "请求失败";
+                });
+    }
+}
+```
+
+## 安全考虑
+
+### SSL/TLS配置
+
+```java
+import javax.net.ssl.*;
+import java.security.cert.X509Certificate;
+import java.net.http.HttpClient;
+import java.time.Duration;
+
+public class HttpsClientExample {
+    
+    public static HttpClient createSecureClient() {
+        try {
+            // 创建信任所有证书的TrustManager（仅用于测试）
+            TrustManager[] trustAllCerts = new TrustManager[] {
+                new X509TrustManager() {
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return null;
+                    }
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) {}
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) {}
+                }
+            };
+            
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+            
+            return HttpClient.newBuilder()
+                    .sslContext(sslContext)
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+                    
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create HTTPS client", e);
+        }
+    }
+    
+    // 生产环境推荐的安全配置
+    public static HttpClient createProductionClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                // 使用默认的SSL配置，会验证证书
+                .build();
+    }
+}
+```
+
+### 请求验证和限流
+
+```java
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+
+public class RateLimiter {
+    private final ConcurrentHashMap<String, RequestCounter> requestCounts = new ConcurrentHashMap<>();
+    private final int maxRequestsPerMinute;
+    
+    public RateLimiter(int maxRequestsPerMinute) {
+        this.maxRequestsPerMinute = maxRequestsPerMinute;
+    }
+    
+    public boolean isAllowed(String clientId) {
+        LocalDateTime now = LocalDateTime.now();
+        RequestCounter counter = requestCounts.computeIfAbsent(clientId, 
+            k -> new RequestCounter(now));
+        
+        // 如果超过1分钟，重置计数器
+        if (ChronoUnit.MINUTES.between(counter.startTime, now) >= 1) {
+            counter.reset(now);
+        }
+        
+        return counter.increment() <= maxRequestsPerMinute;
+    }
+    
+    private static class RequestCounter {
+        private AtomicInteger count = new AtomicInteger(0);
+        private LocalDateTime startTime;
+        
+        public RequestCounter(LocalDateTime startTime) {
+            this.startTime = startTime;
+        }
+        
+        public int increment() {
+            return count.incrementAndGet();
+        }
+        
+        public void reset(LocalDateTime newStartTime) {
+            this.count.set(0);
+            this.startTime = newStartTime;
+        }
+    }
+}
+```
+
+## 最佳实践
+
+### 1. 资源管理
+- 使用try-with-resources确保资源正确关闭
+- 合理配置连接池大小
+- 设置合适的超时时间
+
+### 2. 错误处理
+- 区分不同类型的HTTP错误
+- 实现重试机制
+- 记录详细的错误日志
+
+### 3. 性能优化
+- 使用连接池避免频繁创建连接
+- 启用HTTP/2支持
+- 合理使用缓存
+- 压缩请求和响应数据
+
+### 4. 安全考虑
+- 验证SSL证书
+- 使用HTTPS传输敏感数据
+- 防止SSRF攻击
+- 限制请求大小和频率
+
+## 面试要点
+
+### 高频问题
+1. **HTTP协议特点**
+   - 无状态、请求-响应模式
+   - 支持多种方法（GET、POST、PUT、DELETE等）
+   - 状态码含义
+
+2. **Java HTTP客户端对比**
+   - HttpURLConnection：轻量级，JDK内置
+   - Apache HttpClient：功能丰富，企业级
+   - OkHttp：现代化，性能优秀
+   - Java 11 HTTP Client：官方推荐，支持HTTP/2
+
+3. **连接池的作用**
+   - 减少连接创建开销
+   - 控制并发连接数
+   - 提高性能和资源利用率
+
+### 深入问题
+1. **HTTP/1.1 vs HTTP/2**
+   - 多路复用、服务器推送、头部压缩
+   - 二进制协议、流控制
+
+2. **HTTPS握手过程**
+   - SSL/TLS协议
+   - 证书验证
+   - 密钥交换
+
+3. **HTTP缓存机制**
+   - 强缓存：Expires、Cache-Control
+   - 协商缓存：Last-Modified、ETag
+
+### 实践经验
+1. **如何处理大文件上传下载**
+   - 分块传输
+   - 断点续传
+   - 进度监控
+
+2. **如何实现HTTP重试机制**
+   - 指数退避算法
+   - 幂等性考虑
+   - 最大重试次数
+
+3. **如何监控HTTP性能**
+   - 响应时间统计
+   - 错误率监控
+   - 连接池状态监控
+
+## 总结
+
+Java HTTP编程提供了多种客户端选择，从简单的HttpURLConnection到功能强大的第三方库。选择合适的HTTP客户端需要考虑项目需求、性能要求和团队技术栈。
+
+对于简单的HTTP请求，HttpURLConnection足够使用；对于复杂的企业级应用，推荐使用Apache HttpClient或OkHttp；对于Java 11+的项目，新的HTTP Client API是很好的选择。
+
+在实际开发中，还需要注意资源管理、错误处理、性能优化和安全考虑等方面，确保HTTP通信的稳定性和安全性。
 ```
