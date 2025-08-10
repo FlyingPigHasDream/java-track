@@ -13,13 +13,12 @@
 
 ### 进阶篇
 4. [NIO编程](./nio-programming.md) - 非阻塞I/O编程模型
-5. [Netty框架](./netty.md) - 高性能网络应用框架
-6. [WebSocket编程](./websocket.md) - 实时双向通信
+5. [Netty框架](./netty-framework.md) - 高性能网络应用框架
+6. [WebSocket编程](./websocket-programming.md) - 实时双向通信
 
 ### 高级篇
-7. [RPC通信](./rpc.md) - 远程过程调用实现
+7. [RPC通信](./rpc-communication.md) - 远程过程调用实现
 8. [网络安全](./network-security.md) - 安全通信与防护
-9. [性能优化](./performance-optimization.md) - 网络编程性能调优
 
 ## 学习目标
 
